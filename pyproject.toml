@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "dl"
+version = "0.1.0"
+description = ""
+authors = ["Daniel Correia <example@email.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "dl"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

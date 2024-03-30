@@ -2,8 +2,11 @@ from dl.utils.datasets import MNIST
 from dl.utils import get_device
 import torch
 import torch.nn as nn
+from torch.optim import SGD
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, ToTensor, Normalize, Resize
+import torch.nn.functional as F
 
 DOWNLOAD_DATA = False
 BATCH_SIZE = 256
@@ -57,6 +60,17 @@ if __name__ == "__main__":
 
     model = LeNet5().to(DEVICE)
 
-    for img, label in train_dataloader:
-        print(model(img.to(DEVICE)))
-        break
+    optimizer = SGD(model.parameters(), lr=0.1, momentum=0.9)
+    scheduler = ReduceLROnPlateau(optimizer, factor=0.1, mode="max", verbose=True)
+
+    for epoch in range(EPOCHS):
+        model.train()
+        for batch, (features, labels) in enumerate(train_dataloader):
+            features = features.to(DEVICE)
+            labels = labels.to(DEVICE)
+
+            logits = model.forward(features)
+            loss = F.cross_entropy(logits, labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()

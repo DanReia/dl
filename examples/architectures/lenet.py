@@ -61,9 +61,12 @@ if __name__ == "__main__":
     model = LeNet5().to(DEVICE)
 
     optimizer = SGD(model.parameters(), lr=0.1, momentum=0.9)
-    scheduler = ReduceLROnPlateau(optimizer, factor=0.1, mode="max", verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, factor=0.1, mode="max")
+
+    tracker_dict = {}
 
     for epoch in range(EPOCHS):
+        tracker_dict[epoch] = {}
         model.train()
         for batch, (features, labels) in enumerate(train_dataloader):
             features = features.to(DEVICE)
@@ -74,3 +77,10 @@ if __name__ == "__main__":
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+            tracker_dict[epoch][batch] = loss.item()
+
+        model.eval()
+        with torch.no_grad():
+            # TODO implement evaluation
+            pass

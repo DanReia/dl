@@ -45,6 +45,7 @@ class LeNet5(nn.Module):
 
 if __name__ == "__main__":
     # TODO Set random seeds
+    # TODO Implement validation dataloader
 
     transforms = Compose([Resize((32, 32)), ToTensor(), Normalize((0.5,), (0.5,))])
 
@@ -77,10 +78,22 @@ if __name__ == "__main__":
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
             tracker_dict[epoch][batch] = loss.item()
 
         model.eval()
         with torch.no_grad():
-            # TODO implement evaluation
-            pass
+            # TODO implement evaluation on train and validation
+            correct_predictions = 0
+            total_samples = 0
+
+            for batch, (features, labels) in enumerate(train_dataloader):
+                features = features.to(DEVICE)
+                labels = labels.to(DEVICE)
+                logits = model.forward(features)
+                out_probs, predicted_labels = torch.max(logits, 1)
+
+                correct_predictions += (labels == predicted_labels).sum()
+                total_samples += features.size(0)
+
+            accuracy = correct_predictions / total_samples * 100
+            print(f"Epoch:{epoch} | Accuracy: {accuracy}")

@@ -1,18 +1,36 @@
-from dl.utils.datasets import MNIST
-from dl.utils import get_device
+from torchvision.datasets import MNIST
 import torch
 import torch.nn as nn
+from torchvision.transforms import Compose, ToTensor, Normalize, Resize
+from torch.utils.data import DataLoader, SubsetRandomSampler
 from torch.optim import SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, ToTensor, Normalize, Resize
 import torch.nn.functional as F
+from time import time
+from torch.backends import mps
+from torch import cuda, device
 
-DOWNLOAD_DATA = False
+DOWNLOAD_DATA = True
 BATCH_SIZE = 256
+NUM_WORKERS = 1
 EPOCHS = 5
 RANDOM_SEED = 0
-DEVICE = get_device()
+VALID_FRACTION = 0.1
+
+
+def get_device() -> device:
+    device_using = None
+    if cuda.is_available():
+        device_using = device("cuda:0")
+    elif mps.is_available():
+        if mps.is_built():
+            device_using = device("mps")
+        else:
+            device_using = device("cpu")
+    else:
+        device_using = device("cpu")
+    print(f"Using Device: {device_using}")
+    return device_using
 
 
 class LeNet5(nn.Module):
@@ -43,21 +61,67 @@ class LeNet5(nn.Module):
         return x
 
 
+def validate(dataloader: DataLoader):
+    correct_predictions = 0
+    total_samples = 0
+
+    for _, (features, labels) in enumerate(dataloader):
+        features = features.to(DEVICE)
+        labels = labels.to(DEVICE)
+        logits = model.forward(features)
+        _, predicted_labels = torch.max(logits, 1)
+
+        correct_predictions += (labels == predicted_labels).sum()
+        total_samples += features.size(0)
+
+    loss = F.cross_entropy(logits, labels)
+    accuracy = correct_predictions / total_samples * 100
+    return loss, accuracy
+
+
 if __name__ == "__main__":
     # TODO Set random seeds
-    # TODO Implement validation dataloader
+
+    DEVICE = get_device()
 
     transforms = Compose([Resize((32, 32)), ToTensor(), Normalize((0.5,), (0.5,))])
 
     train_dataset = MNIST(
         root="./data", download=DOWNLOAD_DATA, train=True, transform=transforms
     )
+    valid_dataset = MNIST(
+        root="./data", download=DOWNLOAD_DATA, train=True, transform=transforms
+    )
     test_dataset = MNIST(
         root="./data", download=DOWNLOAD_DATA, train=False, transform=transforms
     )
 
-    train_dataloader = DataLoader(train_dataset, batch_size=256, num_workers=1)
-    test_dataloader = DataLoader(test_dataset, batch_size=256, num_workers=1)
+    train_size = len(train_dataset)
+    valid_size = VALID_FRACTION * train_size
+    train_indices = torch.arange(0, train_size - valid_size)
+    valid_indices = torch.arange(train_size - valid_size, train_size)
+
+    train_sampler = SubsetRandomSampler(
+        [int(i.item()) for i in train_indices]
+    )  # Messy to get around type warning
+    valid_sampler = SubsetRandomSampler([int(i.item()) for i in valid_indices])
+
+    train_dataloader = DataLoader(
+        train_dataset,
+        batch_size=BATCH_SIZE,
+        num_workers=NUM_WORKERS,
+        sampler=train_sampler,
+    )
+    valid_dataloader = DataLoader(
+        valid_dataset,
+        batch_size=BATCH_SIZE,
+        num_workers=NUM_WORKERS,
+        sampler=valid_sampler,
+    )
+
+    test_dataloader = DataLoader(
+        test_dataset, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, shuffle=False
+    )
 
     model = LeNet5().to(DEVICE)
 
@@ -65,6 +129,8 @@ if __name__ == "__main__":
     scheduler = ReduceLROnPlateau(optimizer, factor=0.1, mode="max")
 
     tracker_dict = {}
+
+    start_time = time()
 
     for epoch in range(EPOCHS):
         tracker_dict[epoch] = {}
@@ -82,18 +148,19 @@ if __name__ == "__main__":
 
         model.eval()
         with torch.no_grad():
-            # TODO implement evaluation on train and validation
-            correct_predictions = 0
-            total_samples = 0
+            train_loss, train_accuracy = validate(train_dataloader)
+            valid_loss, valid_accuracy = validate(valid_dataloader)
+            tracker_dict[epoch]["train_accuracy"] = train_accuracy
+            tracker_dict[epoch]["valid_accuracy"] = valid_accuracy
 
-            for batch, (features, labels) in enumerate(train_dataloader):
-                features = features.to(DEVICE)
-                labels = labels.to(DEVICE)
-                logits = model.forward(features)
-                out_probs, predicted_labels = torch.max(logits, 1)
+        scheduler.step(valid_loss)
 
-                correct_predictions += (labels == predicted_labels).sum()
-                total_samples += features.size(0)
+        print(
+            f"Epoch:{epoch} | Train Accuracy: {train_accuracy:.2f}% | Valid Accuracy: {valid_accuracy:.2f}%"
+        )
 
-            accuracy = correct_predictions / total_samples * 100
-            print(f"Epoch:{epoch} | Accuracy: {accuracy}")
+    test_loss, test_accuracy = validate(test_dataloader)
+    print(f"Test Accuracy: {test_accuracy:.2f}%")
+
+    elapsed = (time() - start_time) / 60
+    print(f"Elapsed time: {elapsed:.2f} seconds")
